@@ -1,0 +1,117 @@
+---
+title: "Weight Lifting ML Exercise"
+author: "Michael Becker"
+date: "May 14, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages_and_data_download, echo=FALSE, warning=FALSE, message=FALSE, tidy=TRUE}
+library(dplyr);library(ggmap); library(extrafont);library(plyr);library(tidyr);
+library(lubridate);library(ggplot2); library(rattle); library(grDevices); library(caret); library(RANN); library(klaR); library(mlbench)
+
+fileUrl1<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+fileUrl2<-"https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+setwd("C:/Users/mbecker/Desktop/JHU_Data_Science_Cert/Course 8 - Practical Machine Learning/Work/Course Project")
+if(!dir.exists("./data")){dir.create("./data")}
+
+
+download.file(fileUrl1, destfile = "./data/training.csv")
+training<-read.csv("./data/training.csv")
+download.file(fileUrl2, destfile = "./data/test.csv")
+test<-read.csv("./data/test.csv")
+```
+
+## Executive Summary
+
+The report below applies a gradient boosting machine (GBM) model to aid in the classification of sensor data taken during unilateral bicep curls. These data, provided by Velloso, Bulling, Gellersen, Ugulino, & Fuks (2013), were collected from 6 participants performing 10 repetitions of the bicep curl in one of five ways. Using a subset of the measures provided, the model trained here and cross-validated using k-folds (k=10) achieves an average in-sample accuracy of 99.48% and thus likely performs similarly in the test set of 20 activity observations. Areas of misclassification and possible explanations for the misclassification are discussed.   
+
+##Data
+
+The data in this report represent on-body sensor information taken from six healthy male participants between the ages of 20-28 who were asked to perform one set of 10 repetitions of the unilateral dumbbell biceps curl in five different fashions: 
+
+1) Exactly according to specifications 
+2) Throwing the elbows to the side 
+3) Lifting the dumbbell only halfway 
+4) Lowering the dumbbell only halfway, and 
+5) Throwing the hips to the front. 
+
+The sensor information included in the data set include gyroscopic measurements, acceleration, pitch, roll, and yaw for the sensor packages embedded in devices on the participant's belt, (upper) arm, forearm, and dumbbell. In addition, start and end times were recorded for each observation. Finally, these data are divided into a training set consisting of 19622 observations and a test set of 20 observations resulting in a total sample size of 19642. Below I delineate the dimensions of the training and test datasets as well as the distribution of the observations by outcome class.  
+
+
+```{r summary_WLE, echo=FALSE, message=FALSE, eval = FALSE ,tidy=TRUE}
+summary(training)
+```
+
+```{r data_dimensions, echo=FALSE}
+dim(training);dim(test)
+
+set.seed(8675309)
+table(training$classe)
+```
+
+##Model Building Strategy
+This model was developed based on a combination of data availability and a-priori knowledge of the domains that would likely predict membership in one of the outcome classes. Since the goal of this model is classification, Decision Trees, Random Forest Models, and Gradient Boosted Machine specifications were considered. Comparing the relative in-sample predictive ability of ability of these three options, a GBM model was selected.  
+
+Briefly, while there will be variation within and across participant for each class (1-5) due to fatigue, imperfect repetition, and other sources of random variation, there should be far greater systematic variation when looking across classes and this will facilitiat the classification strategy. 
+
+Five classes of measurement (gyro, accel, pitch, roll, yaw) and the difference between start and end time of the activity are likely to best distinguish between the classifications and as such, these measurements comprised the body of the GBM model. GBM models apply the strategy of boosting (iterative weighting of predictors) to the more basic premise of decision tree modeling and thus when combined with cross-validation are a powerful tool for predictive classification.   
+
+```{r model_setup}
+#Setting up the cross-validation
+train_control<- trainControl(method = "cv", number = 10)
+```
+
+```{r model, cache=TRUE, results="hide"}
+#running the model - this includes the X, Y, and Z gyro, acceleration, pitch, roll, and timestamp for all 
+model <- train(classe~gyros_belt_x + gyros_belt_y + gyros_belt_z + ##belt 
+                     accel_belt_x + accel_belt_y + accel_belt_z + ##belt
+                     pitch_belt + roll_belt + yaw_belt + ##belt
+                     roll_arm + pitch_arm + yaw_arm + ##arms
+                     accel_arm_x + accel_arm_y + accel_arm_z + ##arms 
+                     roll_dumbbell + pitch_dumbbell + yaw_dumbbell + ##dumbbell
+                     gyros_dumbbell_x + gyros_dumbbell_y + gyros_dumbbell_z + ##dumbbell 
+                     accel_dumbbell_x + accel_dumbbell_y + accel_dumbbell_z + ##dumbbell
+                     gyros_forearm_x + gyros_forearm_y + gyros_forearm_z + ##forearms
+                     accel_forearm_x + accel_forearm_y + accel_forearm_z + ##forearms
+                     raw_timestamp_part_1 + raw_timestamp_part_2           ##Timestamps
+                        , trControl=train_control ,method = "gbm", data = training)
+```
+
+##Cross-Validation
+K-fold cross validation was implemented with 10 folds on the data. This allowed for an improved model fit to the test data by diminishing the rigidity of the model to the full training set. K-fold cross validation is a technique that generates k equal sized subsets of the training data and evaluates the model accuracy for each combination of k-1 datasets on the k "test" set. Using 10 folds, this model strikes a balance between the bias and variance trade-off inherent to the k-fold method. 
+
+##Error Rates
+
+Presented below is a confusion matrix for the model as applied to the training data (n = 19422). As the k-fold cross validation was used here, the confusion-matrix reports the average accuracy across the 10 folds. 
+```{r confusion_matrix, tidy=TRUE, echo=FALSE}
+confusionMatrix(model)
+finalmodel<-model$finalModel
+```
+
+
+###In-Sample
+Based upon the estimated in-sample error rate of 99.48%. Since the training data represent a much larger proportion of the full sample than would normally be drawn (19622 of 19642 - 99.898%), this model will likely perform better than had a more traditional split been performed (70/30 or 90/10).
+
+###Out-of-Sample
+Provided that the 20 test cases are drawn from the same sample as the training cases and the distribution of the variables observed are not outliers, I expect that the estimate of out of sample error rate closely mirror the in-sample error rate. Translated to predicting the 20 test cases, I expect that either 19 or 20 of the predictions will be accurate. 
+
+With that said, since the test data are not labeled. Thus, to my knowledge this value cannot be determined empirically. 
+
+
+##Misclassification 
+As noted in the above confusion-matrix, the average in-sample accuracy of the model is 99.48%. This is a remarkable fit and it appears as though the potential points of inaccuracy in the model rest on class A and B, class C and D, and class D and E. Due to the qualitative nature of these outcomes, this misclassification is not surprising. Since there is no elbow sensor data, distinguishing between a perfect dummbell bicep curl and one where the elbows are thrown to the side is a reasonable mistake. As far as C and D, the sensor information for lifting the dumbbell halfway and lowering the dumbbell halfway are quite similar. More interesting perhaps is the misclassifications between class D and E as one would imagine that the hips would stay relatively stationary in D and much more movement would occur in E. Despite this, it is possible that while the participants were instructed to only lower the dumbbell halfway, this could naturally predispose some of the hip movement that was detected and thus attributed to classification in class E.
+
+##Visualizing fit of the model on the training data
+
+The figure below depicts the model fit to the training data. In the absence of labeled test data and when the training set is the overwhelming majority of the full sample (99.898%), this likely approximates patterns of correct and incorrect classification in the full sample.  
+
+```{r model_fit_on_training, echo=FALSE}
+ggplot(aes(x=predict(model, training), y=classe), data = training)+geom_jitter(alpha = 0.2, aes(color = predict(model, training)==classe))
+```
+
+In the jitter plot shown above, the light blue points reflect accurate classifications whereas the light red points represent misclassifications. Noted in the discussion of the confusion matrix, most misclassifications appear to be between A:B and D:C (predicted:actual).  
